@@ -36,10 +36,9 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import eu.kanade.tachiyomi.data.preference.ComicVinePreferences
-import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.manga.interactor.GetLibraryManga
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import tachiyomi.domain.manga.interactor.GetLibraryManga
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -94,20 +93,12 @@ fun UpcomingTab() {
 
 @Composable
 private fun UpcomingList(days: List<UpcomingDay>) {
-    val dateFormatter = remember {
-        DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault())
-    }
-
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         days.forEach { day ->
             item(key = day.date.toString()) {
-                DateHeader(
-                    date = day.date,
-                    formatter = dateFormatter,
-                )
+                DateHeader(day = day)
             }
             items(
                 items = day.issues,
@@ -120,31 +111,31 @@ private fun UpcomingList(days: List<UpcomingDay>) {
 }
 
 @Composable
-private fun DateHeader(date: LocalDate, formatter: DateTimeFormatter) {
+private fun DateHeader(day: UpcomingDay) {
     val today = LocalDate.now()
-    val label = when (date) {
-        today -> "Today"
-        today.plusDays(1) -> "Tomorrow"
-        else -> date.format(formatter)
-    }
-    // Add "th", "st", "nd", "rd" suffix to day
-    val day = date.dayOfMonth
-    val suffix = when {
-        day in 11..13 -> "th"
-        day % 10 == 1 -> "st"
-        day % 10 == 2 -> "nd"
-        day % 10 == 3 -> "rd"
-        else -> "th"
-    }
-    val fullLabel = if (date == today || date == today.plusDays(1)) {
-        label
-    } else {
-        val base = date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
-        "$base$suffix"
+
+    val label = when {
+        day.datePrecision == DatePrecision.MONTH_ONLY -> day.displayDate
+        day.datePrecision == DatePrecision.YEAR_ONLY -> day.displayDate
+        day.date == today -> "Today"
+        day.date == today.plusDays(1) -> "Tomorrow"
+        else -> {
+            // Add ordinal suffix to day number
+            val d = day.date.dayOfMonth
+            val suffix = when {
+                d in 11..13 -> "th"
+                d % 10 == 1 -> "st"
+                d % 10 == 2 -> "nd"
+                d % 10 == 3 -> "rd"
+                else -> "th"
+            }
+            val formatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault())
+            "${day.date.format(formatter)}$suffix"
+        }
     }
 
     Text(
-        text = fullLabel,
+        text = label,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
         modifier = Modifier
@@ -163,7 +154,6 @@ private fun IssueRow(issue: UpcomingIssue) {
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        // Cover image
         val imageUrl = issue.coverUrl ?: issue.thumbnailUrl
         AsyncImage(
             model = ImageRequest.Builder(context)
@@ -180,10 +170,7 @@ private fun IssueRow(issue: UpcomingIssue) {
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Text info
-        Column(
-            modifier = Modifier.weight(1f),
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = issue.mangaTitle,
                 style = MaterialTheme.typography.bodyLarge,
@@ -207,11 +194,19 @@ private fun IssueRow(issue: UpcomingIssue) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            // Show date precision hint for vague dates
+            if (issue.datePrecision != DatePrecision.EXACT) {
+                Text(
+                    text = "Expected: ${issue.displayDate}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             if (!issue.description.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = issue.description
-                        .replace(Regex("<[^>]*>"), "") // strip HTML tags
+                        .replace(Regex("<[^>]*>"), "")
                         .trim(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
